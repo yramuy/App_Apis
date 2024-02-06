@@ -168,6 +168,136 @@ class DbHandler
 		return $data;
 	}
 
+	function userLogin($username, $password)
+	{
+		$data = array();
+		$token = $this->generateApiKey();
+		$query = "SELECT u.id AS id,u.user_role_id AS user_roleid,u.user_name AS user_name,u.user_password AS user_password, emp.emp_number AS emp_number,emp.emp_mobile AS mobile_number,emp.emp_work_email AS email,emp.business_area AS companyId FROM erp_user u LEFT JOIN hs_hr_employee emp ON emp.emp_number = u.emp_number WHERE u.deleted=0 and u.user_name ='$username'";
+		$count = mysqli_query($this->conn, $query);
+		if (mysqli_num_rows($count) > 0) {
+			$row = mysqli_fetch_assoc($count);
+			$user_name = $row['user_name'];
+			$user_password = $row['user_password'];
+			$user_id = $row['id'];
+			$user_roleid = $row['user_roleid'];
+			$mobileno = $row['mobile_number'];
+			$email = $row['email'];
+			$companyId = $row['companyId'];
+			$emp_num = $row['emp_number'];
+			$data['emp_number'] = $emp_num;
+			$verify = password_verify($password, $user_password);
+			if ($verify) {
+
+				$rndno = rand(1000, 9999);
+
+				$mobile = $mobileno;
+
+				$query = "SELECT * FROM erp_user_token WHERE userId = $user_id";
+				$count = mysqli_query($this->conn, $query);
+				$otpnumber = md5($rndno);
+
+				if (mysqli_num_rows($count) > 0) {
+					$row = mysqli_fetch_assoc($count);
+					$token_userid = $row['userid'];
+					if ($token_userid == $user_id) {
+						$updatesql = "UPDATE erp_user_token SET userid=$user_id, otp='$otpnumber',session_token='$token' WHERE userid=$user_id";
+						if ($result2 = mysqli_query($this->conn, $updatesql)) {
+							$data['session_token'] = $token;
+							$data['user_id'] = $user_id;
+							$data['user_roleid'] = $user_roleid;
+							$data['company_id'] = $companyId;
+							$supervisor = $this->isSupervisor($emp_num);
+							$userRoleId = $this->getUserRoleByUserId($user_id);
+
+							if ($userRoleId['name'] == 'Department Manager') {
+								$data['role'] = 'Department Manager';
+							} else {
+
+								if (!empty($supervisor)) {
+									$data['role'] = 'Supervisor';
+								} else {
+									$data['role'] = $userRoleId['name'];
+								}
+							}
+
+							$data['userDetails'] = $data;
+							// $data['role'] = $userRoleId['name'];
+							$data['status'] = 1;
+						} else {
+							$data['status'] = 0;
+						}
+					} else {
+						$data['status'] = 0;
+					}
+				} else {
+					$sql = "INSERT INTO erp_user_token (userid,otp,session_token) VALUES (?,?,?)";
+
+					if ($stmt = mysqli_prepare($this->conn, $sql)) {
+						// Bind variables to the prepared statement as parameters
+						mysqli_stmt_bind_param($stmt, "iss", $user_id, $otpnumber, $token);
+
+						// Attempt to execute the prepared statement
+						if (mysqli_stmt_execute($stmt)) {
+							$data['session_token'] = $token;
+							$data['user_id'] = $user_id;
+							$data['company_id'] = $companyId;
+							$supervisor = $this->isSupervisor($emp_num);
+							if ($supervisor) {
+								$data['supervisorId'] = $supervisor;
+								$data['supervisor'] = 'Supervisor';
+							}
+							$data['userDetails'] = $data;
+							$data['status'] = 1;
+						} else {
+							$data['status'] = 0;
+						}
+					} else {
+						//echo "ERROR: Could not prepare query: $sql. " . mysqli_error($this->conn);
+						$data['status'] = 0;
+					}
+				}
+			} else {
+				$data['status'] = 0;
+			}
+		} else {
+			$data['status'] = 0;
+		}
+		return $data;
+	}
+
+	function isSupervisor($empnum)
+	{
+		$data = array();
+		$query = "SELECT * FROM hs_hr_emp_reportto where erep_sup_emp_number IN ($empnum)";
+		$count = mysqli_query($this->conn, $query);
+		$row = mysqli_fetch_assoc($count);
+		if (isset($row['erep_sup_emp_number'])) {
+			$supervisor = $row['erep_sup_emp_number'];
+		} else {
+			$supervisor = 0;
+		}
+		return $supervisor;
+	}
+
+	function getUserRoleByUserId($id)
+	{
+		$details = array();
+		$query = "SELECT u.user_role_id AS id,ur.name AS name, u.emp_number AS empNumber FROM erp_user u LEFT JOIN erp_user_role ur ON u.user_role_id = ur.id WHERE u.id = $id"; //table
+		$result = mysqli_query($this->conn, $query);
+		if (mysqli_num_rows($result) > 0) {
+			$row = mysqli_fetch_array($result);
+			$id = $row['id'];
+			$name = $row['name'];
+
+			$empNumber = $row['empNumber'];
+
+			$details['id'] = $id;
+			$details['name'] = $name;
+			$details['empNumber'] = $empNumber;
+		}
+		return $details;
+	}
+
 	function getMenuList()
 	{
 
